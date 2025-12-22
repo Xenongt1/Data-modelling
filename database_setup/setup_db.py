@@ -40,7 +40,9 @@ def setup_database():
     print("Executing OLTP setup SQL...")
     
     # Read execute SQL file
-    with open('oltp_setup.sql', 'r') as f:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sql_path = os.path.join(script_dir, 'oltp_setup.sql')
+    with open(sql_path, 'r') as f:
         sql_script = f.read()
     
     # Split by semicolon and execute

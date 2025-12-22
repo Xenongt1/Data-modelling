@@ -12,26 +12,29 @@ It covers the full data engineering lifecycle:
 
 ## Project Structure
 
-### 1. Setup & OLTP (Source System)
-*   `oltp_setup.sql`: DDL and sample data for the normalized tables (patients, encounters, billing, etc.).
-*   `setup_db.py`: Python script to create the database and load the OLTP data.
+### `database_setup/`
+*   `oltp_setup.sql`: DDL and sample data for the normalized tables.
+*   `setup_db.py`: Script to create the `medical_lab` database and load OLTP data.
 
-### 2. Analysis (The Problem)
-*   `analyze_queries.py`: Runs 4 business questions against the OLTP schema and measures execution time.
-*   `run_explain.py`: Runs `EXPLAIN` on the queries to visualize execution plans.
-*   `query_analysis.txt`: Detailed breakdown of performance bottlenecks (e.g., Row Explosion, O(N^2) Self-Joins).
-*   `q1_solution.sql` - `q4_solution.sql`: Standalone SQL scripts for the 4 analytical questions.
+### `analysis/`
+*   **`oltp_analysis/`**: Performance analysis of the source system.
+    *   `analyze_queries.py`: Measures execution time of OLTP queries.
+    *   `run_explain.py`: Runs `EXPLAIN` to visualize execution plans.
+    *   `query_analysis.txt`: Detailed bottleneck analysis.
+    *   **`solutions/`**: Standalone SQL for the 4 business questions (`q1` - `q4`).
+*   **`dw_analysis/`**: Verification of the Star Schema.
+    *   `run_dw_analysis.py`: Verifies performance of the new Star Schema.
+    *   `star_schema_queries.txt`: Query comparison.
+    *   `debug_nulls.py`: Data integrity check script.
 
-### 3. Design & ETL (The Solution)
-*   `design_decisions.txt`: Documentation of design choices (Fact Grain, Dim Tables, Bridge Tables).
-*   `star_schema.sql`: DDL for the Data Warehouse tables (`fact_encounters`, `dim_patient`, etc.).
-*   `etl_design.txt`: Pseudocode/Logic for the ETL process.
-*   `etl_process.py`: Python script that performs the ETL, including handling Many-to-Many relationships and pre-aggregating metrics.
+### `data_warehouse/`
+*   `star_schema.sql`: DDL for the Fact and Dimension tables.
+*   `etl_process.py`: Python ETL pipeline (Extracts from OLTP -> Transforms -> Loads to Star Schema).
+*   `etl_design.txt`: Documentation of ETL logic.
+*   `design_decisions.txt`: Documentation of modeling choices.
 
-### 4. Verification & Reflection
-*   `run_dw_analysis.py`: Runs the rewritten queries against the Star Schema to verify speedups.
-*   `star_schema_queries.txt`: Syntax comparison of OLTP vs. Star Schema queries.
-*   `reflection.md`: Final analysis of trade-offs, gains, and lessons learned.
+### `docs/`
+*   `reflection.md`: Final analysis of trade-offs and lessons learned.
 
 ## How to Run
 
@@ -56,23 +59,23 @@ It covers the full data engineering lifecycle:
 
 3.  **Setup and Load OLTP**:
     ```bash
-    python3 setup_db.py
+    python3 database_setup/setup_db.py
     ```
 
 4.  **Run Performance Analysis**:
     ```bash
-    python3 analyze_queries.py
-    python3 run_explain.py
+    python3 analysis/oltp_analysis/analyze_queries.py
+    python3 analysis/oltp_analysis/run_explain.py
     ```
 
 5.  **Run ETL (Create Star Schema)**:
     ```bash
-    python3 etl_process.py
+    python3 data_warehouse/etl_process.py
     ```
 
 6.  **Verify Results**:
     ```bash
-    python3 run_dw_analysis.py
+    python3 analysis/dw_analysis/run_dw_analysis.py
     ```
 
 ## Key Findings

@@ -19,7 +19,10 @@ def get_db_connection():
 
 def execute_sql_file(cursor, filename):
     print(f"Executing {filename}...")
-    with open(filename, 'r') as f:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(script_dir, filename)
+    
+    with open(file_path, 'r') as f:
         sql = f.read()
     
     # Simple split by semicolon.
