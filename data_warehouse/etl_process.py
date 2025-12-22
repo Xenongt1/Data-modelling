@@ -2,6 +2,15 @@ import os
 import sys
 import datetime
 import mysql.connector
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 def get_db_connection():
     host = os.environ.get('DB_HOST', 'localhost')
@@ -18,7 +27,7 @@ def get_db_connection():
     return conn
 
 def execute_sql_file(cursor, filename):
-    print(f"Executing {filename}...")
+    logger.info(f"Executing {filename}...")
     script_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(script_dir, filename)
     
@@ -38,23 +47,23 @@ def etl_process():
     # 1. Create Star Schema Tables
     execute_sql_file(cursor, 'star_schema.sql')
     conn.commit()
-    print("Star Schema tables created.")
+    logger.info("Star Schema tables created.")
     
     # 2. Load Dimensions
     
-    print("Loading dim_encounter_type...")
+    logger.info("Loading dim_encounter_type...")
     cursor.execute("INSERT INTO dim_encounter_type (encounter_type_name) SELECT DISTINCT encounter_type FROM encounters")
     
-    print("Loading dim_department...")
+    logger.info("Loading dim_department...")
     cursor.execute("""
         INSERT INTO dim_department (department_id, department_name, floor, capacity)
         SELECT department_id, department_name, floor, capacity FROM departments
     """)
     
-    print("Loading dim_specialty (into dim_provider mostly, but just in case we need standalone, wait, we decided against dim_specialty standalone)")
+    logger.info("Loading dim_specialty (into dim_provider mostly)...")
     # We decided dim_provider contains specialty_name.
     
-    print("Loading dim_provider...")
+    logger.info("Loading dim_provider...")
     cursor.execute("""
         INSERT INTO dim_provider (provider_id, provider_name, credential, specialty_name)
         SELECT 
@@ -66,19 +75,19 @@ def etl_process():
         JOIN specialties s ON p.specialty_id = s.specialty_id
     """)
 
-    print("Loading dim_diagnosis...")
+    logger.info("Loading dim_diagnosis...")
     cursor.execute("""
         INSERT INTO dim_diagnosis (diagnosis_id, icd10_code, icd10_description)
         SELECT diagnosis_id, icd10_code, icd10_description FROM diagnoses
     """)
 
-    print("Loading dim_procedure...")
+    logger.info("Loading dim_procedure...")
     cursor.execute("""
         INSERT INTO dim_procedure (procedure_id, cpt_code, cpt_description)
         SELECT procedure_id, cpt_code, cpt_description FROM procedures
     """)
     
-    print("Loading dim_patient...")
+    logger.info("Loading dim_patient...")
     # Calculate age in Python or SQL? SQL is easier for now.
     cursor.execute("""
         INSERT INTO dim_patient (patient_id, first_name, last_name, full_name, date_of_birth, gender, mrn, current_age)
@@ -90,7 +99,7 @@ def etl_process():
         FROM patients
     """)
     
-    print("Loading dim_date...")
+    logger.info("Loading dim_date...")
     # Populate date dimension for a reasonable range (2020-2025 based on sample data)
     start_date = datetime.date(2020, 1, 1)
     end_date = datetime.date(2025, 12, 31)
@@ -117,10 +126,10 @@ def etl_process():
     """, batch_data)
     
     conn.commit()
-    print("Dimensions loaded.")
+    logger.info("Dimensions loaded.")
 
     # 3. Load Fact Table
-    print("Loading fact_encounters...")
+    logger.info("Loading fact_encounters...")
     
     # We need to calculate is_readmission. We can fetch all encounters, sort them in python, calculate it, then insert.
     cursor.execute("""
@@ -212,10 +221,10 @@ def etl_process():
     """, fact_rows)
     
     conn.commit()
-    print(f"Fact table loaded. {len(fact_rows)} rows.")
+    logger.info(f"Fact table loaded. {len(fact_rows)} rows.")
     
     # 4. Load Bridge Tables
-    print("Loading bridge_encounter_diagnoses...")
+    logger.info("Loading bridge_encounter_diagnoses...")
     
     # We need fact_encounter_id map
     cursor.execute("SELECT encounter_id, fact_encounter_id FROM fact_encounters")
@@ -235,7 +244,7 @@ def etl_process():
             
     cursor.executemany("INSERT INTO bridge_encounter_diagnoses (fact_encounter_id, diagnosis_key, diagnosis_sequence) VALUES (%s, %s, %s)", bridge_d_rows)
 
-    print("Loading bridge_encounter_procedures...")
+    logger.info("Loading bridge_encounter_procedures...")
     proc_map = get_lookup("dim_procedure", "procedure_key", "procedure_id")
     
     cursor.execute("SELECT encounter_id, procedure_id FROM encounter_procedures")
@@ -251,7 +260,7 @@ def etl_process():
     cursor.executemany("INSERT INTO bridge_encounter_procedures (fact_encounter_id, procedure_key) VALUES (%s, %s)", bridge_p_rows)
     
     conn.commit()
-    print("Bridge tables loaded.")
+    logger.info("Bridge tables loaded.")
     conn.close()
 
 if __name__ == "__main__":

@@ -8,6 +8,15 @@ except ImportError:
     import subprocess
     subprocess.check_call([sys.executable, "-m", "pip", "install", "mysql-connector-python"])
     import mysql.connector
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 def get_db_connection():
     # Get credentials from env or use defaults
@@ -24,7 +33,7 @@ def get_db_connection():
         )
         return conn
     except mysql.connector.Error as err:
-        print(f"Error connecting to MySQL: {err}")
+        logger.error(f"Error connecting to MySQL: {err}")
         sys.exit(1)
 
 def setup_database():
@@ -37,7 +46,7 @@ def setup_database():
     cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
     cursor.execute(f"USE {db_name}")
     
-    print("Executing OLTP setup SQL...")
+    logger.info("Executing OLTP setup SQL...")
     
     # Read execute SQL file
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -54,18 +63,18 @@ def setup_database():
             try:
                 cursor.execute(statement)
             except mysql.connector.Error as err:
-                print(f"Error executing statement: {statement[:50]}...")
-                print(err)
+                logger.error(f"Error executing statement: {statement[:50]}...")
+                logger.error(err)
                 
     conn.commit()
-    print("OLTP initialization complete.")
+    logger.info("OLTP initialization complete.")
     
     # Verify tables
     cursor.execute("SHOW TABLES")
     tables = cursor.fetchall()
-    print("Tables created:")
+    logger.info("Tables created:")
     for table in tables:
-        print(f"- {table[0]}")
+        logger.info(f"- {table[0]}")
         
     cursor.close()
     conn.close()
