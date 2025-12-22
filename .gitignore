@@ -1,0 +1,10 @@
+# System
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Generated Analysis Results
+*_results.txt
+query_explain_output.txt
