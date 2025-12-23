@@ -18,12 +18,11 @@ It covers the full data engineering lifecycle:
 
 ### `analysis/`
 *   **`oltp_analysis/`**: Performance analysis of the source system.
-    *   `analyze_queries.py`: Measures execution time of OLTP queries.
-    *   `run_explain.py`: Runs `EXPLAIN` to visualize execution plans.
+    *   `profile_oltp.sql`: SQL script to run and profile OLTP queries.
     *   `query_analysis.txt`: Detailed bottleneck analysis.
     *   **`solutions/`**: Standalone SQL for the 4 business questions (`q1` - `q4`).
 *   **`dw_analysis/`**: Verification of the Star Schema.
-    *   `run_dw_analysis.py`: Verifies performance of the new Star Schema.
+    *   `profile_dw.sql`: SQL script to run and profile Star Schema queries.
     *   `star_schema_queries.txt`: Query comparison.
     *   `debug_nulls.py`: Data integrity check script.
 
@@ -63,9 +62,9 @@ It covers the full data engineering lifecycle:
     ```
 
 4.  **Run Performance Analysis**:
-    ```bash
-    python3 analysis/oltp_analysis/analyze_queries.py
-    python3 analysis/oltp_analysis/run_explain.py
+    Open your SQL client or terminal and run:
+    ```sql
+    SOURCE analysis/oltp_analysis/profile_oltp.sql;
     ```
 
 5.  **Run ETL (Create Star Schema)**:
@@ -74,8 +73,9 @@ It covers the full data engineering lifecycle:
     ```
 
 6.  **Verify Results**:
-    ```bash
-    python3 analysis/dw_analysis/run_dw_analysis.py
+    Open your SQL client or terminal and run:
+    ```sql
+    SOURCE analysis/dw_analysis/profile_dw.sql;
     ```
 
 ## Key Findings
