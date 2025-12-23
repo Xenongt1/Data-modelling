@@ -1,4 +1,0 @@
-Q1: Monthly Encounters by Specialty: 0.0022 seconds
-Q2: Top Diagnosis-Procedure Pairs: 0.0015 seconds
-Q3: 30-Day Readmission Rate: 0.0013 seconds
-Q4: Revenue by Specialty & Month: 0.0005 seconds

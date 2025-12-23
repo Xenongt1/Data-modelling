@@ -1,4 +1,0 @@
-Q1 (Star): Monthly Encounters by Specialty: 0.0022 seconds
-Q2 (Star): Top Diagnosis-Procedure Pairs: 0.0015 seconds
-Q3 (Star): 30-Day Readmission Rate: 0.0005 seconds
-Q4 (Star): Revenue by Specialty & Month: 0.0003 seconds
