@@ -1,6 +1,24 @@
+"""
+OLTP Performance Analysis
+-------------------------
+Executes key business queries against the normalized (`medical_oltp`) database.
+Utilizes MySQL's native `SET profiling = 1` to capture precise execution times using the database engine itself.
+
+Output:
+    Logs the execution time and row counts for each query to 'execution.log'.
+"""
+
 import mysql.connector
 import os
 import time
+import logging
+
+# Configure Logging
+logging.basicConfig(
+    filename='execution.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Configuration
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
@@ -8,6 +26,7 @@ DB_USER = os.environ.get('DB_USER', 'root')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', '')
 
 def get_connection():
+    """Establishes connection to the OLTP database."""
     return mysql.connector.connect(
         host=DB_HOST,
         user=DB_USER,
@@ -16,6 +35,16 @@ def get_connection():
     )
 
 def run_analysis():
+    """
+    Runs 4 predefined SQL queries and logs their performance.
+    
+    Methodology:
+    1. Turn on MySQL Profiling.
+    2. Run Query.
+    3. Capture 'SHOW PROFILES' output.
+    4. Log result.
+    """
+    logging.info("Starting OLTP Performance Analysis...")
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -97,39 +126,37 @@ def run_analysis():
         }
     ]
     
-    print(f"{'Query Name':<40} | {'Duration (s)':<15} | {'Rows Returned':<15}")
-    print("-" * 80)
+    # Log Header
+    logging.info(f"{'Query Name':<40} | {'Duration (s)':<15} | {'Rows Returned':<15}")
+    logging.info("-" * 80)
     
     results = []
     
     for q in queries:
-        # We also measure wall time just in case profiling misses something or is confusing
-        start_wall = time.perf_counter()
+        # Execute Query
         cursor.execute(q['sql'])
-        rows = cursor.fetchall()  # Fetch all to force execution
-        end_wall = time.perf_counter()
-        wall_duration = end_wall - start_wall
+        rows = cursor.fetchall()  # Fetch all to force full execution
         
-        # Get Profile
+        # Monitor Profile
         cursor.execute("SHOW PROFILES")
         profiles = cursor.fetchall()
-        # The last one is ours
-        # Profile row: [Query_ID, Duration, Query]
+        # The last profile corresponds to the query we just ran
+        # Profile row format: [Query_ID, Duration, Query_String]
         db_duration = profiles[-1][1]
         
-        print(f"{q['name']:<40} | {float(db_duration):<15.4f} | {len(rows):<15}")
+        # Log Result
+        logging.info(f"{q['name']:<40} | {float(db_duration):<15.4f} | {len(rows):<15}")
         
         results.append({
             "name": q['name'],
             "duration": db_duration,
-            "rows": len(rows),
-            "sql": q['sql'],
-            "desc": q['description']
+            "rows": len(rows)
         })
 
     cursor.close()
     conn.close()
     
+    logging.info("OLTP Analysis Complete.")
     return results
 
 if __name__ == "__main__":

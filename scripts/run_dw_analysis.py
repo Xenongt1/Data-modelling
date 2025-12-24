@@ -1,6 +1,24 @@
+"""
+Data Warehouse Performance Analysis
+-----------------------------------
+Executes optimized analytical queries against the Star Schema (`medical_dw`).
+Utilizes MySQL's native `SET profiling = 1` to capture comparison metrics.
+
+Output:
+    Logs the execution time and row counts for each query to 'execution.log'.
+"""
+
 import mysql.connector
 import os
 import time
+import logging
+
+# Configure Logging
+logging.basicConfig(
+    filename='execution.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Configuration
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
@@ -8,6 +26,7 @@ DB_USER = os.environ.get('DB_USER', 'root')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', '')
 
 def get_connection():
+    """Establishes connection to the DW database."""
     return mysql.connector.connect(
         host=DB_HOST,
         user=DB_USER,
@@ -16,6 +35,11 @@ def get_connection():
     )
 
 def run_analysis():
+    """
+    Runs 4 optimized SQL queries and logs their performance.
+    Matches the same business questions as the OLTP analysis for fair comparison.
+    """
+    logging.info("Starting DW Performance Analysis...")
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -92,8 +116,9 @@ def run_analysis():
         }
     ]
     
-    print(f"{'Query Name':<40} | {'Duration (s)':<15} | {'Rows Returned':<15}")
-    print("-" * 80)
+    # Log Header
+    logging.info(f"{'Query Name':<40} | {'Duration (s)':<15} | {'Rows Returned':<15}")
+    logging.info("-" * 80)
     
     results = []
     
@@ -107,11 +132,13 @@ def run_analysis():
         profiles = cursor.fetchall()
         db_duration = profiles[-1][1]
         
-        print(f"{q['name']:<40} | {float(db_duration):<15.4f} | {len(rows):<15}")
+        # Log Result
+        logging.info(f"{q['name']:<40} | {float(db_duration):<15.4f} | {len(rows):<15}")
         results.append((q['name'], db_duration))
 
     cursor.close()
     conn.close()
+    logging.info("DW Analysis Complete.")
 
 if __name__ == "__main__":
     run_analysis()

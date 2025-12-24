@@ -1,7 +1,28 @@
+"""
+ETL Pipeline Logic
+------------------
+Responsible for Extracting data from the OLTP source (`medical_oltp`),
+Transforming it (calculating ages, lengths of stay, resolving lookup keys),
+and Loading it into the Star Schema (`medical_dw`).
+
+Process Flow:
+    1. Initialize DW Schema (execute `star_schema.sql`).
+    2. Populate Dimensions (Date, Patient, Provider, etc.).
+    3. Populate Fact Table (Encounters) with pre-calculated metrics.
+    4. Populate Bridge Tables for multi-valued attributes (Diagnoses, Procedures).
+"""
+
 import mysql.connector
 import os
 import datetime
-import time
+import logging
+
+# Configure Logging
+logging.basicConfig(
+    filename='execution.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Configuration
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
@@ -9,6 +30,7 @@ DB_USER = os.environ.get('DB_USER', 'root')
 DB_PASSWORD = os.environ.get('DB_PASSWORD', '')
 
 def get_connection(database=None):
+    """Establishes connection to MySQL, optionally to a specific database."""
     return mysql.connector.connect(
         host=DB_HOST,
         user=DB_USER,
@@ -17,21 +39,22 @@ def get_connection(database=None):
         allow_local_infile=True
     )
 
-def log(msg):
-    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}")
-
 def etl_process():
+    """
+    Orchestrates the Main ETL pipeline.
+    """
+    logging.info("Starting ETL Process...")
+    
     # 0. Initialize DW Schema
-    log("Initializing DW Schema...")
+    logging.info("Initializing DW Schema from SQL file...")
     conn = get_connection()
     cursor = conn.cursor()
     
+    # Locate SQL file
     current_dir = os.path.dirname(os.path.abspath(__file__))
     sql_file_path = os.path.join(current_dir, '../sql/star_schema.sql')
     
     with open(sql_file_path, 'r') as f:
-        # Split by ; but handle potential complexity if needed. 
-        # For this file, simple split is fine.
         sql_commands = f.read().split(';')
         for cmd in sql_commands:
             if cmd.strip():
@@ -40,15 +63,15 @@ def etl_process():
     cursor.close()
     conn.close()
 
-    # Connector for Work
+    # Establish connections for data movement
     oltp_conn = get_connection('medical_oltp')
     dw_conn = get_connection('medical_dw')
-    oltp_cursor = oltp_conn.cursor(dictionary=True)
+    oltp_cursor = oltp_conn.cursor(dictionary=True) # Dict cursor for easier column access
     dw_cursor = dw_conn.cursor()
 
     try:
         # 1. Load dim_date
-        log("Loading dim_date...")
+        logging.info("Loading Dimension: dim_date...")
         start_date = datetime.date(2020, 1, 1)
         end_date = datetime.date(2030, 12, 31)
         delta = datetime.timedelta(days=1)
@@ -71,11 +94,12 @@ def etl_process():
         dw_conn.commit()
 
         # 2. Load dim_patient
-        log("Loading dim_patient...")
+        logging.info("Loading Dimension: dim_patient...")
         oltp_cursor.execute("SELECT * FROM patients")
         patients = oltp_cursor.fetchall()
         p_data = []
         for p in patients:
+            # Transformation: Calculate Age from DOB
             age = (datetime.date.today() - p['date_of_birth']).days // 365
             p_data.append((p['patient_id'], p['first_name'], p['last_name'], p['date_of_birth'], age, p['gender'], p['mrn']))
         
@@ -85,24 +109,25 @@ def etl_process():
         """, p_data)
         dw_conn.commit()
 
-        # 3. Load dim_specialty (Direct Copy)
-        log("Loading dim_specialty...")
+        # 3. Load dim_specialty
+        logging.info("Loading Dimension: dim_specialty...")
         oltp_cursor.execute("SELECT * FROM specialties")
         specs = oltp_cursor.fetchall()
         dw_cursor.executemany("INSERT INTO dim_specialty (specialty_id, specialty_name, specialty_code) VALUES (%s, %s, %s)",
                              [(x['specialty_id'], x['specialty_name'], x['specialty_code']) for x in specs])
         dw_conn.commit()
 
-        # 4. Load dim_department (Direct Copy)
-        log("Loading dim_department...")
+        # 4. Load dim_department
+        logging.info("Loading Dimension: dim_department...")
         oltp_cursor.execute("SELECT * FROM departments")
         depts = oltp_cursor.fetchall()
         dw_cursor.executemany("INSERT INTO dim_department (department_id, department_name) VALUES (%s, %s)",
                              [(x['department_id'], x['department_name']) for x in depts])
         dw_conn.commit()
 
-        # 5. Load dim_provider (Denormalized)
-        log("Loading dim_provider...")
+        # 5. Load dim_provider
+        logging.info("Loading Dimension: dim_provider (Denormalizing)...")
+        # Optimization: Join provider details in source query to flatten schema
         oltp_cursor.execute("""
             SELECT p.provider_id, p.first_name, p.last_name, p.credential, s.specialty_name, d.department_name
             FROM providers p
@@ -117,14 +142,14 @@ def etl_process():
         dw_conn.commit()
         
         # 6. Load dim_encounter_type
-        log("Loading dim_encounter_type...")
+        logging.info("Loading Dimension: dim_encounter_type...")
         oltp_cursor.execute("SELECT DISTINCT encounter_type FROM encounters")
         types = oltp_cursor.fetchall()
         dw_cursor.executemany("INSERT INTO dim_encounter_type (encounter_type_name) VALUES (%s)", [(x['encounter_type'],) for x in types])
         dw_conn.commit()
 
-        # 7. Load dim_diagnosis & dim_procedure
-        log("Loading reference dimensions...")
+        # 7. Load Reference Dimensions
+        logging.info("Loading Dimensions: dim_diagnosis & dim_procedure...")
         oltp_cursor.execute("SELECT * FROM diagnoses")
         diags = oltp_cursor.fetchall()
         dw_cursor.executemany("INSERT INTO dim_diagnosis (diagnosis_id, icd10_code, icd10_description) VALUES (%s, %s, %s)",
@@ -137,8 +162,9 @@ def etl_process():
         dw_conn.commit()
 
         # 8. Load Fact Table (fact_encounters)
-        log("Loading fact_encounters...")
-        # Dictionary Caches for Keys
+        logging.info("Loading Fact Table: fact_encounters...")
+        
+        # Cache Lookups for Surrogate Key generation
         def get_map(table, key_col, val_col):
             dw_cursor.execute(f"SELECT {key_col}, {val_col} FROM {table}")
             return {row[1]: row[0] for row in dw_cursor.fetchall()}
@@ -149,13 +175,13 @@ def etl_process():
         dept_map = get_map('dim_department', 'department_key', 'department_id')
         type_map = get_map('dim_encounter_type', 'encounter_type_key', 'encounter_type_name')
 
-        # Extract Source Data optimized
+        # Extract Source Data
         query = """
             SELECT 
                 e.encounter_id, e.patient_id, e.provider_id, e.encounter_date, 
                 e.discharge_date, e.department_id, e.encounter_type,
                 b.claim_amount, b.allowed_amount,
-                p.specialty_id -- We need this for the redundant key
+                p.specialty_id
             FROM encounters e
             LEFT JOIN billing b ON e.encounter_id = b.encounter_id
             JOIN providers p ON e.provider_id = p.provider_id
@@ -168,16 +194,19 @@ def etl_process():
             dt = e['encounter_date']
             d_key = int(dt.strftime('%Y%m%d'))
             
+            # Transformation: Calculate Length of Stay (LOS)
             los = 0
             if e['discharge_date']:
                 los = (e['discharge_date'] - dt).total_seconds() / 86400.0
             
+            # Lookup Surrogate Keys
             p_key = patient_map.get(e['patient_id'])
             prov_key = provider_map.get(e['provider_id'])
             spec_key = specialty_map.get(e['specialty_id'])
             dept_key = dept_map.get(e['department_id'])
             type_key = type_map.get(e['encounter_type'])
             
+            # Transformation: Boolean Flag
             is_inpatient = 1 if e['encounter_type'] == 'Inpatient' else 0
             
             fact_data.append((
@@ -185,8 +214,7 @@ def etl_process():
                 los, e['claim_amount'] or 0, e['allowed_amount'] or 0, is_inpatient
             ))
             
-        # Bulk Insert Fact
-        # Chunking just in case
+        # Bulk Insert Fact (Chunked)
         chunk_size = 5000
         for i in range(0, len(fact_data), chunk_size):
             dw_cursor.executemany("""
@@ -198,16 +226,16 @@ def etl_process():
         dw_conn.commit()
         
         # 9. Load Bridge Tables
-        log("Loading Bridges...")
+        logging.info("Loading Bridge Tables...")
         
-        # Need encounter_id -> encounter_key map
+        # Create map: natural_key -> surrogate_key
         dw_cursor.execute("SELECT encounter_key, encounter_id FROM fact_encounters")
         enc_map = {row[1]: row[0] for row in dw_cursor.fetchall()}
         
         diagnosis_map = get_map('dim_diagnosis', 'diagnosis_key', 'diagnosis_id')
         procedure_map = get_map('dim_procedure', 'procedure_key', 'procedure_id')
         
-        # Diagnoses Bridge
+        # Bridge: Encounter -> Diagnoses
         oltp_cursor.execute("SELECT encounter_id, diagnosis_id, diagnosis_sequence FROM encounter_diagnoses")
         ed_rows = oltp_cursor.fetchall()
         bridge_d_data = []
@@ -220,7 +248,7 @@ def etl_process():
         for i in range(0, len(bridge_d_data), chunk_size):
             dw_cursor.executemany("INSERT INTO bridge_encounter_diagnoses (encounter_key, diagnosis_key, diagnosis_sequence) VALUES (%s, %s, %s)", bridge_d_data[i:i+chunk_size])
 
-        # Procedures Bridge
+        # Bridge: Encounter -> Procedures
         oltp_cursor.execute("SELECT encounter_id, procedure_id, procedure_date FROM encounter_procedures")
         ep_rows = oltp_cursor.fetchall()
         bridge_p_data = []
@@ -235,10 +263,10 @@ def etl_process():
             dw_cursor.executemany("INSERT INTO bridge_encounter_procedures (encounter_key, procedure_key, procedure_date_key) VALUES (%s, %s, %s)", bridge_p_data[i:i+chunk_size])
 
         dw_conn.commit()
-        log("ETL Complete Successfully.")
+        logging.info("ETL Complete Successfully.")
         
     except mysql.connector.Error as err:
-        log(f"ETL Failed: {err}")
+        logging.error(f"ETL Failed: {err}")
     finally:
         oltp_cursor.close()
         oltp_conn.close()

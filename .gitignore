@@ -11,3 +11,6 @@ __pycache__/
 
 # User Requests
 LEARNING_GUIDE.md
+
+# Logs
+*.log
