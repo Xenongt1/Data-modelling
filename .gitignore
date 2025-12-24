@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# Database Files (Local)
+*.db
+*.sqlite
+
+# Environment / Credentials
+.env
+
+# User Requests
+LEARNING_GUIDE.md

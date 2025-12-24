@@ -1,0 +1,38 @@
+Dimension Load Logic:
+1. dim_date:
+   - Generate a date range from 2020-01-01 to 2030-12-31.
+   - Calculate month, quarter, year, etc.
+   - Insert into `dim_date`.
+
+2. dim_patient:
+   - Extract `patient_id`, `first_name`, `last_name`, `dob`, `gender` from `medical_oltp.patients`.
+   - Transform: Calculate current age.
+   - Load into `dim_patient`. Handle SCD Type 1 (overwrite) for simplicity in this lab.
+
+3. dim_provider:
+   - Join `providers`, `specialties`, and `departments` in OLTP.
+   - Extract `provider_id`, `name`, `specialty_name`, `department_name`.
+   - Insert into `dim_provider`.
+
+Fact Table Load Logic (fact_encounters):
+1. Extract from `encounters` joined with `billing` (LEFT JOIN).
+2. For each row:
+   - Lookup `patient_key` from `dim_patient` using `patient_id`.
+   - Lookup `provider_key` from `dim_provider` using `provider_id`.
+   - Lookup `date_key` from `dim_date` using `encounter_date`.
+   - Calculate `length_of_stay`.
+   - Store `claim_amount` and `allowed_amount` (handle NULLs as 0).
+3. Insert into `fact_encounters`.
+
+Bridge Table Load Logic:
+1. bridge_encounter_diagnoses:
+   - Extract `encounter_id`, `diagnosis_id` from `oltp.encounter_diagnoses`.
+   - Lookup `fact_encounter_key` (by encounter_id) and `diagnosis_key` (by diagnosis_id).
+   - Insert.
+
+2. bridge_encounter_procedures:
+   - Similar logic for procedures.
+
+Refresh Strategy:
+- Full Refresh for this lab (Truncate DW tables and reload).
+- In production, we would use a `last_updated_timestamp` watermark for incremental loading.

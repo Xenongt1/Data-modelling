@@ -1,0 +1,101 @@
+QUESTION 1: Monthly Encounters by Specialty
+SQL Query:
+SELECT 
+    DATE_FORMAT(e.encounter_date, '%Y-%m') as month,
+    s.specialty_name,
+    e.encounter_type,
+    COUNT(e.encounter_id) as total_encounters,
+    COUNT(DISTINCT e.patient_id) as unique_patients
+FROM encounters e
+JOIN providers p ON e.provider_id = p.provider_id
+JOIN specialties s ON p.specialty_id = s.specialty_id
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+
+Schema Analysis:
+Tables joined: encounters, providers, specialties
+Number of joins: 2
+Performance:
+Execution time: 0.0741 seconds
+Estimated rows scanned: ~30,000 (Full table scan of encounters likely)
+Bottleneck Identified:
+Aggregation (GROUP BY) on joined tables. The database has to join processed rows before grouping.
+
+---------------------------------------------------
+
+QUESTION 2: Top Diagnosis-Procedure Pairs
+SQL Query:
+SELECT 
+    d.icd10_code,
+    p.cpt_code,
+    COUNT(e.encounter_id) as overlap_count
+FROM encounters e
+JOIN encounter_diagnoses ed ON e.encounter_id = ed.encounter_id
+JOIN diagnoses d ON ed.diagnosis_id = d.diagnosis_id
+JOIN encounter_procedures ep ON e.encounter_id = ep.encounter_id
+JOIN procedures p ON ep.procedure_id = p.procedure_id
+GROUP BY 1, 2
+ORDER BY 3 DESC
+LIMIT 10
+
+Schema Analysis:
+Tables joined: encounters, encounter_diagnoses, diagnoses, encounter_procedures, procedures
+Number of joins: 4
+Performance:
+Execution time: 0.0908 seconds
+Estimated rows scanned: High due to Cartesian product
+Bottleneck Identified:
+Row Explosion. Joining two many-to-many junction tables (diagnoses and procedures) through the encounter table causes a Cartesian product for each encounter (e.g., 3 diagnoses * 2 procedures = 6 rows per encounter), which then has to be aggregated back down.
+
+---------------------------------------------------
+
+QUESTION 3: 30-Day Readmission Rate
+SQL Query:
+SELECT 
+    s.specialty_name,
+    COUNT(DISTINCT initial.encounter_id) as index_admissions,
+    COUNT(DISTINCT readmit.encounter_id) as readmissions,
+    (COUNT(DISTINCT readmit.encounter_id) / COUNT(DISTINCT initial.encounter_id)) * 100 as readmission_rate
+FROM encounters initial
+JOIN providers p ON initial.provider_id = p.provider_id
+JOIN specialties s ON p.specialty_id = s.specialty_id
+LEFT JOIN encounters readmit ON initial.patient_id = readmit.patient_id
+    AND readmit.encounter_date > initial.discharge_date
+    AND readmit.encounter_date <= DATE_ADD(initial.discharge_date, INTERVAL 30 DAY)
+WHERE initial.encounter_type = 'Inpatient'
+GROUP BY 1
+ORDER BY 4 DESC
+
+Schema Analysis:
+Tables joined: encounters (x2), providers, specialties
+Number of joins: 3 (including 1 self-join)
+Performance:
+Execution time: 17.0966 seconds
+Estimated rows scanned: massive O(N^2) complexity due to unoptimized date range join
+Bottleneck Identified:
+CRITICAL: Self-Join loop. For every inpatient encounter, the DB is scanning the entire encounters table to find readmissions. Without a covering index on (patient_id, encounter_date), this results in extreme slowness (17s for just 30k rows).
+
+---------------------------------------------------
+
+QUESTION 4: Revenue by Specialty & Month
+SQL Query:
+SELECT 
+    DATE_FORMAT(b.claim_date, '%Y-%m') as month,
+    s.specialty_name,
+    SUM(b.allowed_amount) as total_revenue
+FROM billing b
+JOIN encounters e ON b.encounter_id = e.encounter_id
+JOIN providers p ON e.provider_id = p.provider_id
+JOIN specialties s ON p.specialty_id = s.specialty_id
+WHERE b.claim_status = 'Paid'
+GROUP BY 1, 2
+ORDER BY 1, 3 DESC
+
+Schema Analysis:
+Tables joined: billing, encounters, providers, specialties
+Number of joins: 3
+Performance:
+Execution time: 0.0234 seconds
+Estimated rows scanned: ~30,000
+Bottleneck Identified:
+Multiple joins required just to link Revenue (Billing) to the grouping dimension (Specialty).
