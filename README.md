@@ -2,13 +2,13 @@
 
 Welcome to the Medical Data Warehouse project! This lab demonstrates the migration of a slow, normalized (3NF) healthcare database into a high-performance Star Schema Data Warehouse.
 
-## 📂 Project Structure
+## Project Structure
 
 - **`scripts/`**: Python scripts for data generation, analysis, and ETL.
 - **`sql/`**: SQL files defining the database schemas.
 - **`docs/`**: Documentation, design decisions, and performance reports.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - **MySQL Server** installed and running locally.
@@ -32,7 +32,7 @@ export DB_PASSWORD='YourPasswordHere'
 
 ---
 
-## 🏃‍♂️ How to Run
+## How to Run
 
 ### Step 1: Generate Data (OLTP)
 Create the `medical_oltp` database and populate it with 30,000 synthetic patient encounters.
@@ -61,7 +61,7 @@ DB_PASSWORD='YourPasswordHere' python3 run_dw_analysis.py
 
 ---
 
-## 📊 Key Findings
+## Key Findings
 - **Complex Joins**: Queries involving many-to-many relationships (e.g., Diagnosis-Procedures) run **~60% faster** in the Star Schema.
 - **Self-Joins**: Readmission rate calculations are significantly optimized (**~70% faster**).
 - **Simplicity**: The Star Schema eliminates complex join chains, making SQL easier to write and maintain.
