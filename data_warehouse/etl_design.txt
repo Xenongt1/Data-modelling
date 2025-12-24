@@ -1,0 +1,78 @@
+# ETL Design Document
+
+## 1. Dimension Load Logic
+
+### dim_date
+- **Source**: Range of dates from 2020-01-01 to 2030-12-31.
+- **Logic**: 
+    - Loop through each day.
+    - Calculate `year`, `month`, `month_name` via date functions.
+    - Set `date_key` as YYYYMMDD (integer).
+    - Insert if not exists.
+
+### dim_patient
+- **Source**: `patients` table.
+- **Logic**:
+    - SELECT * FROM patients.
+    - Calculate `current_age` = DATEDIFF(NOW(), date_of_birth) / 365.
+    - Insert into `dim_patient`.
+    - Maintain `patient_id` as natural key lookup.
+
+### dim_provider
+- **Source**: `providers` JOIN `specialties`.
+- **Logic**:
+    - Query `providers` joined with `specialties`.
+    - Flatten `specialty_name` into the provider record.
+    - Insert into `dim_provider`.
+
+### dim_department
+- **Source**: `departments`.
+- **Logic**: Direct copy of columns.
+
+### dim_encounter_type
+- **Source**: Distinct `encounter_type` from `encounters`.
+- **Logic**: Select DISTINCT type, assign surrogate keys.
+
+## 2. Fact Table Load Logic (`fact_encounters`)
+
+- **Source**: `encounters` table.
+- **Join Logic**:
+    - Join with `billing` to get financial totals.
+    - Join with `dim_patient` on `patient_id` to get `patient_key`.
+    - Join with `dim_provider` on `provider_id` to get `provider_key`.
+    - Join with `dim_department` on `department_id` to get `department_key`.
+    - Join with `dim_encounter_type` on `encounter_type` string.
+    - Calc `date_key` from `encounter_date` (YYYYMMDD).
+
+- **Metrics Calculation**:
+    - `total_allowed_amount`: SUM from billing (grouped by encounter).
+    - `diagnosis_count`: Count from `encounter_diagnoses`.
+    - `procedure_count`: Count from `encounter_procedures`.
+    - `length_of_stay_hours`: TIMESTAMPDIFF(HOUR, encounter_date, discharge_date).
+
+- **Readmission Logic (`is_readmission`)**:
+    - Sort data by patient and encounter_date.
+    - Use LAG/LEAD logic (or Python logic) to find if previous encounter was Inpatient and <= 30 days ago.
+    - Wait, spec says: "inpatient discharge, then return within 30 days".
+    - So for *this* encounter, is it a readmission? 
+    - YES if (Current Date - Previous Discharge Date) <= 30 Days AND Previous was Inpatient.
+    - Mark `is_readmission` = 1.
+
+## 3. Bridge Table Load Logic
+
+### bridge_encounter_diagnoses
+- **Source**: `encounter_diagnoses`.
+- **Logic**:
+    - Iterate through `encounter_diagnoses`.
+    - Lookup `fact_encounter_id` using `encounter_id` (Natural Key).
+    - Lookup `diagnosis_key` using `diagnosis_id`.
+    - Insert into bridge.
+
+### bridge_encounter_procedures
+- **Source**: `encounter_procedures`.
+- **Logic**: Similar lookup process.
+
+## 4. Refresh Strategy
+- **Frequency**: Daily.
+- **Type**: Full Refresh (for this lab). In prod, would be incremental (loading only new encounters).
+- **Late Facts**: Standard ETL handle (update existing fact or insert new).
