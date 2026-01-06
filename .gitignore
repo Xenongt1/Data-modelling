@@ -11,6 +11,8 @@ __pycache__/
 
 # User Requests
 LEARNING_GUIDE.md
+docs/PERFORMANCE_COMPARISON.md
+docs/EXPLAIN_ANALYSIS_GUIDE.md
 
 # Logs
 *.log

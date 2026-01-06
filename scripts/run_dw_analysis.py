@@ -20,6 +20,13 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# Configure detailed EXPLAIN logging
+explain_logger = logging.getLogger('explain')
+explain_handler = logging.FileHandler('dw_explain_analysis.log')
+explain_handler.setFormatter(logging.Formatter('%(message)s'))
+explain_logger.addHandler(explain_handler)
+explain_logger.setLevel(logging.INFO)
+
 # Configuration
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_USER = os.environ.get('DB_USER', 'root')
@@ -117,12 +124,37 @@ def run_analysis():
     ]
     
     # Log Header
-    logging.info(f"{'Query Name':<40} | {'Duration (s)':<15} | {'Rows Returned':<15}")
-    logging.info("-" * 80)
+    logging.info(f"{'Query Name':<40} | {'Duration (s)':<15} | {'Rows Returned':<15} | {'Est. Rows Scanned'}")
+    logging.info("-" * 100)
     
     results = []
     
     for q in queries:
+        # First, get EXPLAIN output (use traditional format for row estimates)
+        explain_logger.info(f"\n{'='*80}")
+        explain_logger.info(f"Query: {q['name']}")
+        explain_logger.info(f"{'='*80}")
+        
+        cursor.execute(f"EXPLAIN FORMAT=TRADITIONAL {q['sql']}")
+        explain_rows = cursor.fetchall()
+        explain_columns = [desc[0] for desc in cursor.description]
+        
+        # Log EXPLAIN output in readable format
+        explain_logger.info(f"\n{' | '.join(explain_columns)}")
+        explain_logger.info("-" * 120)
+        
+        total_estimated_rows = 0
+        for explain_row in explain_rows:
+            explain_logger.info(" | ".join(str(val) if val is not None else "NULL" for val in explain_row))
+            # Sum up estimated rows
+            if 'rows' in explain_columns:
+                rows_idx = explain_columns.index('rows')
+                if explain_row[rows_idx] is not None:
+                    total_estimated_rows += int(explain_row[rows_idx])
+        
+        explain_logger.info(f"\nTotal Estimated Rows Scanned: {total_estimated_rows:,}")
+        
+        # Execute Query
         start_wall = time.perf_counter()
         cursor.execute(q['sql'])
         rows = cursor.fetchall()
@@ -132,9 +164,14 @@ def run_analysis():
         profiles = cursor.fetchall()
         db_duration = profiles[-1][1]
         
-        # Log Result
-        logging.info(f"{q['name']:<40} | {float(db_duration):<15.4f} | {len(rows):<15}")
-        results.append((q['name'], db_duration))
+        # Log Result to main log
+        logging.info(f"{q['name']:<40} | {float(db_duration):<15.4f} | {len(rows):<15} | Est.Rows: {total_estimated_rows:,}")
+        
+        # Log to EXPLAIN log
+        explain_logger.info(f"Actual Execution Time: {float(db_duration):.4f}s")
+        explain_logger.info(f"Actual Rows Returned: {len(rows):,}")
+        
+        results.append((q['name'], db_duration, total_estimated_rows))
 
     cursor.close()
     conn.close()
