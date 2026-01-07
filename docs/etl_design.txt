@@ -1,38 +1,47 @@
+ETL Architecture: Production SQL Implementation
+-------------------------------------------------
+
+Implementation Strategy:
+- **Approach**: ELT (Extract, Load, Transform) using Native SQL.
+- **Goal**: High-performance "Set-Based" operations instead of row-by-row processing.
+- **Execution**: Managed by `sql/production_etl.sql`.
+
 Dimension Load Logic:
 1. dim_date:
-   - Generate a date range from 2020-01-01 to 2030-12-31.
-   - Calculate month, quarter, year, etc.
-   - Insert into `dim_date`.
+   - **Method**: Stored Procedure `GenerateDimDate(start_date, end_date)`.
+   - **Logic**: Iterates from start to end date, calculating quarters/months, and bulk inserts.
 
 2. dim_patient:
-   - Extract `patient_id`, `first_name`, `last_name`, `dob`, `gender` from `medical_oltp.patients`.
-   - Transform: Calculate current age.
-   - Load into `dim_patient`. Handle SCD Type 1 (overwrite) for simplicity in this lab.
+   - **Method**: `INSERT INTO ... SELECT`.
+   - **Logic**: Directly transforms `dob` to `current_age` using `TIMESTAMPDIFF`.
 
 3. dim_provider:
-   - Join `providers`, `specialties`, and `departments` in OLTP.
-   - Extract `provider_id`, `name`, `specialty_name`, `department_name`.
-   - Insert into `dim_provider`.
+   - **Method**: Denormalized Join.
+   - **Logic**: Joins `providers` + `specialties` + `departments` to flatten hierarchy into a single dimension.
 
 Fact Table Load Logic (fact_encounters):
-1. Extract from `encounters` joined with `billing` (LEFT JOIN).
-2. For each row:
-   - Lookup `patient_key` from `dim_patient` using `patient_id`.
-   - Lookup `provider_key` from `dim_provider` using `provider_id`.
-   - Lookup `date_key` from `dim_date` using `encounter_date`.
-   - Calculate `length_of_stay`.
-   - Store `claim_amount` and `allowed_amount` (handle NULLs as 0).
-3. Insert into `fact_encounters`.
+1. **Billing Aggregation (Crucial Step)**:
+   - Pre-aggregates `billing` table by `encounter_id` using `SUM()` to handle multiple bills per encounter.
+   - Ensures one row per encounter in the Fact table.
+
+2. **Metrics Calculation**:
+   - `length_of_stay`: Calculated as `ROUND(TIMESTAMPDIFF(SECOND, encounter_date, discharge_date) / 86400.0)`. stored as `INT`.
+   - `total_claim_amount`: Mapped from pre-aggregated sum.
+   - `total_allowed_amount`: Mapped from pre-aggregated sum.
+   - `diagnosis_count`: Calculated via Correlated Subquery on `encounter_diagnoses`.
+   - `procedure_count`: Calculated via Correlated Subquery on `encounter_procedures`.
+
+3. **Surrogate Key Lookup**:
+   - Joins Fact source directly to Dimensions (`dim_patient`, etc.) to resolve Keys during the INSERT.
 
 Bridge Table Load Logic:
 1. bridge_encounter_diagnoses:
-   - Extract `encounter_id`, `diagnosis_id` from `oltp.encounter_diagnoses`.
-   - Lookup `fact_encounter_key` (by encounter_id) and `diagnosis_key` (by diagnosis_id).
-   - Insert.
+   - Joins `encounter_diagnoses` -> `fact_encounters` -> `dim_diagnosis`.
+   - resolves `encounter_key` and `diagnosis_key` in a single pass.
 
 2. bridge_encounter_procedures:
-   - Similar logic for procedures.
+   - Similar logic for procedures, resolving `procedure_key` and `procedure_date_key`.
 
 Refresh Strategy:
-- Full Refresh for this lab (Truncate DW tables and reload).
-- In production, we would use a `last_updated_timestamp` watermark for incremental loading.
+- **Current**: TRUNCATE + RELOAD (Full Refresh).
+- **Production**: Would use `WHERE encounter_date > :last_load_date`.

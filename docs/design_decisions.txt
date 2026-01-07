@@ -4,45 +4,37 @@ Justification:
 Most of our analytical queries (Q1, Q3, Q4) are centered around the 'Encounter' as the fundamental unit of activity (Counts, Readmissions, Revenue).
 - Option B (Diagnosis Grain) would duplicate revenue and encounter details, making sum/count queries harder (requiring distinct/averaging).
 - Option C (Procedure Grain) suffers the same issue.
-Option A is the cleanest for standard reporting. We will handle the "Many" relationships (Diagnoses/Procedures) using Bridge Tables (or multi-valued dimension tables).
+Option A is the cleanest for standard reporting. We will handle the "Many" relationships (Diagnoses/Procedures) using Bridge Tables.
 
-Decision 2: Dimension Tables
+Decision 2: Dimension Tables (Denormalization Strategy)
 We will create the following dimensions:
-1. dim_date
-   - date_key (PK, YYYYMMDD)
-   - full_date
-   - year, month, day, quarter, day_of_week
-2. dim_patient
-   - patient_key (PK)
-   - patient_id (Natural Key)
-   - name, current_age, gender
-   - current_address (if we had it)
+1. dim_date (Generated via Stored Procedure)
+   - date_key (PK, YYYYMMDD), full_date, year, month, quarter, etc.
+2. dim_patient (SCD Type 1)
+   - patient_id (Natural Key), name, dob, gender, current_age (Calculated).
 3. dim_provider
-   - provider_key (PK)
-   - provider_id (Natural Key)
-   - full_name
-   - specialty_name (Denormalized from specialties table)
-   - department_name (Denormalized from departments table)
-4. dim_encounter_type
-   - encounter_type_key (PK)
-   - encounter_type_name
-5. dim_diagnosis (For Bridge)
-   - diagnosis_key (PK)
-   - icd10_code, description
-6. dim_procedure (For Bridge)
-   - procedure_key (PK)
-   - cpt_code, description
+   - Flattened hierarchy: provider joined with specialty and department.
+   - Eliminates need for "Snowflake" joins during analysis.
+4. dim_encounter_type, dim_diagnosis, dim_procedure.
 
-Decision 3: Pre-Aggregated Metrics
-In `fact_encounters`, we will store:
-1. `total_claim_amount` & `total_allowed_amount`: To avoid joining the `billing` table for every revenue query. (Solves Q4 bottleneck).
-2. `count_diagnoses` & `count_procedures`: Simple integers allowing us to filter for "complex" cases without joining bridge tables.
-3. `length_of_stay_days`: Pre-calculated difference between discharge and admit date (Solving calculation overhead).
-4. `is_readmission_flag`: (Advanced) We could compute this during ETL, but strictly it depends on the window. We'll stick to calculating it or flagging "prev_discharge_date" to make the self-join cheaper. Let's start with just the revenue/counts as definite wins.
+Decision 3: Pre-Aggregated Metrics (Storage vs Compute Trade-off)
+In `fact_encounters`, we decided to PRE-CALCULATE heavily to simplfy report queries:
+1. `total_claim_amount` & `total_allowed_amount`: Aggregated via SUM() during ETL. Solves the 1:Many billing issue and prevents report duplication.
+2. `diagnosis_count` & `procedure_count`: Integer counts stored on the fact table. Allows filtering for "Complex Cases" without touching bridge tables.
+3. `length_of_stay`: Stored as INT (Rounded). Calculated as Datetime Difference / 86400.
 
-Decision 4: Bridge Tables
-Yes, we will use Bridge Tables.
-Why: A patient can have multiple diagnoses and procedures per encounter.
-- `bridge_encounter_diagnoses` (encounter_key, diagnosis_key, sequence)
-- `bridge_encounter_procedures` (encounter_key, procedure_key, date_key)
-This avoids the "Row Explosion" in the main fact table seen in Query 2, while still allowing accurate "Weighted" analysis if needed, or simple "Group Bridge" queries.
+Decision 4: ETL Strategy
+Choice: SQL-Based ELT (Extract, Load, Transform).
+Justification:
+- Performance: Set-based SQL updates are significantly faster than row-by-row Python processing for bulk loads.
+- Simplicity: Logic resides in the database (`production_etl.sql`), making it independent of the application layer.
+
+Decision 5: Bridge Tables (Handling Many-to-Many)
+Choice: Standard Bridge Table Pattern
+1. `bridge_encounter_diagnoses`:
+   - Links `encounter_key` to `diagnosis_key`.
+   - Includes `diagnosis_sequence` (Primary, Secondary, etc.) to allow filtering by rank.
+2. `bridge_encounter_procedures`:
+   - Links `encounter_key` to `procedure_key`.
+   - Includes `procedure_date_key` to track timing of specific interventions within an encounter.
+Why: Essential for accurate reporting on Q2 (Top Diag-Proc pairs) without forcing the Fact table to the lowest grain.

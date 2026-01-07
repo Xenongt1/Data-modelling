@@ -90,9 +90,12 @@ department_key INT,
 encounter_type_key INT,
 
 -- Metrics
-length_of_stay_days DECIMAL(10,2),
-    claim_amount DECIMAL(12,2),
-    allowed_amount DECIMAL(12,2),
+
+length_of_stay INT,
+    total_claim_amount DECIMAL(12,2),
+    total_allowed_amount DECIMAL(12,2),
+    diagnosis_count INT,
+    procedure_count INT,
     is_inpatient_flag TINYINT,
     
     FOREIGN KEY (patient_key) REFERENCES dim_patient(patient_key),

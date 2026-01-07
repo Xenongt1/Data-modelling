@@ -22,6 +22,10 @@ import random
 import logging
 from faker import Faker
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure Logging
 logging.basicConfig(
