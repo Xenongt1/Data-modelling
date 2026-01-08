@@ -67,10 +67,18 @@ Explanation: Why is it faster?
 
 QUESTION 4: Revenue by Specialty & Month
 SQL Query (Optimized Star Schema):
-SELECT 
-    COALESCE(DATE_FORMAT(f.claim_date, '%M'), 'Unpaid/Pending') as month_name, 
-    SUM(f.total_allowed_amount) ... 
-FROM fact_encounters f ...
+SELECT DATE_FORMAT(f.claim_date, '%M') as month_name, s.specialty_name, SUM(f.total_allowed_amount) as total_revenue
+FROM
+    fact_encounters f
+    JOIN dim_specialty s ON f.specialty_key = s.specialty_key
+WHERE
+    f.claim_date IS NOT NULL
+GROUP BY
+    DATE_FORMAT(f.claim_date, '%Y'),
+    DATE_FORMAT(f.claim_date, '%m'),
+    month_name,
+    s.specialty_name
+ORDER BY DATE_FORMAT(f.claim_date, '%Y'), DATE_FORMAT(f.claim_date, '%m'), total_revenue DESC;
 
 Expected Performance: 75.4ms (vs 276ms OLTP)
 
