@@ -6,13 +6,13 @@ Based on our comprehensive analysis with EXPLAIN support, here are the actual pe
 
 ### Query Performance Comparison
 
-| Query | OLTP Time | DW Time | OLTP Rows Scanned | DW Rows Scanned | Winner |
-|-------|-----------|---------|-------------------|-----------------|--------|
-| Q1: Monthly Encounters | 0.2203s | 0.3111s | 594 | 30,003 | OLTP (29% faster) |
-| Q2: Diagnosis-Procedure | 1.2128s | 0.6213s | 30,169 | 105,003 | **DW (49% faster)** |
-| Q3: Readmission Rate | 0.1796s | 0.0828s | 30,170 | 60,003 | **DW (54% faster)** |
-| Q4: Revenue by Month | 0.1555s | 0.1967s | 30,174 | 30,002 | OLTP (21% faster) |
-| **TOTAL** | **1.7682s** | **1.2119s** | **91,107** | **225,011** | **DW (31% faster)** |
+| Query | OLTP Time | DW Time | Winner |
+|-------|-----------|---------|--------|
+| Q1: Monthly Encounters | 0.232s | 0.391s | OLTP (Simpler Query) |
+| Q2: Diagnosis-Procedure | 1.624s | 0.529s | **DW (3.0x Faster)** |
+| Q3: Readmission Rate | 0.276s | 0.113s | **DW (2.4x Faster)** |
+| Q4: Revenue by Month | 0.276s | 0.075s | **DW (3.7x Faster)** |
+| **TOTAL** | **2.408s** | **1.108s** | **DW (2.1x Faster)** |
 
 ## Why Is the Star Schema Faster?
 
@@ -91,24 +91,24 @@ The Bridge table keeps the Fact table clean while still allowing deep analysis o
 ### Query-by-Query Analysis:
 
 **Q1: Monthly Encounters by Specialty**
-- OLTP: 0.22s (594 rows scanned)
-- DW: 0.31s (30,003 rows scanned)
-- **Winner: OLTP** - Simple aggregation benefits from covering indexes
+- OLTP: 0.232s (Simple join)
+- DW: 0.391s (Join + Sort overhead)
+- **Winner: OLTP** - Simple aggregation on small data favors OLTP
 
 **Q2: Top Diagnosis-Procedure Pairs**
-- OLTP: 1.21s (30,169 rows scanned) - Cartesian product explosion
-- DW: 0.62s (105,003 rows scanned) - Bridge tables eliminate explosion
-- **Winner: DW (49% faster)** - This is the "killer query" that justifies a DW
+- OLTP: 1.624s (Cartesian product explosion)
+- DW: 0.529s (Bridge tables + specific indexing)
+- **Winner: DW (3.0x faster)** - Bridge strategy validated
 
 **Q3: 30-Day Readmission Rate**
-- OLTP: 0.18s (30,170 rows scanned) - Self-join with date range
-- DW: 0.08s (60,003 rows scanned) - Integer date keys + boolean flags
-- **Winner: DW (54% faster)** - Optimized data types make the difference
+- OLTP: 0.276s (Self-join with date calculation)
+- DW: 0.113s (Smart Key Date Join)
+- **Winner: DW (2.4x faster)** - Integer/Date comparisons beat complex logic
 
 **Q4: Revenue by Specialty & Month**
-- OLTP: 0.16s (30,174 rows scanned)
-- DW: 0.20s (30,002 rows scanned)
-- **Winner: OLTP** - Small dataset doesn't benefit from denormalization
+- OLTP: 0.276s (Join billing + encounters + calc)
+- DW: 0.075s (Pre-aggregated + Smart Key)
+- **Winner: DW (3.7x faster)** - Pre-aggregation is the ultimate optimizer
 
 ## The Paradox Explained
 

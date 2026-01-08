@@ -22,12 +22,14 @@ Dimension Load Logic:
 Fact Table Load Logic (fact_encounters):
 1. **Billing Aggregation (Crucial Step)**:
    - Pre-aggregates `billing` table by `encounter_id` using `SUM()` to handle multiple bills per encounter.
+   - **New**: Extracts `claim_date` (via MAX) to link revenue to the payment timeline.
    - Ensures one row per encounter in the Fact table.
 
 2. **Metrics Calculation**:
    - `length_of_stay`: Calculated as `ROUND(TIMESTAMPDIFF(SECOND, encounter_date, discharge_date) / 86400.0)`. stored as `INT`.
    - `total_claim_amount`: Mapped from pre-aggregated sum.
-   - `total_allowed_amount`: Mapped from pre-aggregated sum.
+   - `total_allowed_amount`: Mapped from pre-aggregated sum WHERE `claim_status = 'Paid'`.
+   - `encounter_date`, `discharge_date`, `claim_date`: Denormalized directly onto Fact table (Smart Keys).
    - `diagnosis_count`: Calculated via Correlated Subquery on `encounter_diagnoses`.
    - `procedure_count`: Calculated via Correlated Subquery on `encounter_procedures`.
 

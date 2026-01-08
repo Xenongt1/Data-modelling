@@ -1,5 +1,7 @@
-QUESTION 1: Monthly Encounters by Specialty
-SQL Query:
+Query 1: Monthly Encounters by Specialty
+The SQL (Star Schema)
+
+sql
 SELECT 
     d.month_name,
     s.specialty_name,
@@ -11,21 +13,18 @@ JOIN dim_date d ON f.date_key = d.date_key
 JOIN dim_specialty s ON f.specialty_key = s.specialty_key
 JOIN dim_encounter_type t ON f.encounter_type_key = t.encounter_type_key
 GROUP BY d.year, d.month, d.month_name, s.specialty_name, t.encounter_type_name;
+Execution Time Estimate
 
-Execution time estimate: ~223ms (vs 146ms OLTP)
+0.391 seconds (Star Schema) vs 0.232 seconds (OLTP)
+Improvement Factor
 
-Improvement factor: 0.65x (Slight Regression)
+0.6x (Slower)
+Explanation: Why is it slower? The Star Schema is slower in this specific instance due to Join Overhead on Small Data:
 
-Performance Analysis:
-- **OLTP**: **146ms**.
-    - **Why**: Very efficient coverage. Only joined 2 tables (`providers`, `specialties`). The bottleneck was sorting (133ms).
-- **Star Schema**: **223ms**.
-    - **Strategy**: Star Join Optimization. Joined 3 Dimension tables (`date`, `specialty`, `encounter_type`).
-    - **Why Slower?**: The Overhead of joining one extra table (`dim_date`) plus the generic nature of the Star Schema adds slight latency for simple queries.
-- **Verdict**: **0.65x (Slight Regression)**.
-    - **Insight**: Star Schemas are not magic bullets for *simple* queries. If an OLTP query is already blazing fast (146ms) with covering indexes, a Star Schema won't beat it. The Star Schema's value is **Consistency** and **Scalability**.
+Nested Loop Overhead: The execution plan shows a Nested loop inner join strategy. For every one of the 30,000 fact rows, the database relies on index lookups to fetch data from dim_date and dim_encounter_type.
+OLTP Efficiency: The original OLTP query was faster because it only needed to join two small tables (providers and specialties) and could calculate the "Month" column on-the-fly (DATE_FORMAT) without needing a physical join to a Date dimension.
+Context: Accessing a Dimension table (dim_date) is robust for filtering complex date ranges (e.g., "fiscal quarters" or "holidays"), but for simple grouping on a small dataset, the cost of the extra joins (random seeks) outweighs the benefit. This "Start-up Cost" is typical when applying DW architectures to small data volumes where a simple table scan beats complex join logic.
 
----------------------------------------------------
 
 QUESTION 2: Top Diagnosis-Procedure Pairs
 SQL Query:
@@ -38,19 +37,49 @@ JOIN bridge_encounter_procedures bp ON bd.encounter_key = bp.encounter_key
 JOIN dim_diagnosis dd ON bd.diagnosis_key = dd.diagnosis_key
 JOIN dim_procedure dp ON bp.procedure_key = dp.procedure_key
 GROUP BY 1, 2
-ORDER BY 3 DESC
-LIMIT 10;
+ORDER BY 3 DESC;
 
-Execution time estimate: ~425ms (vs 1.2s OLTP)
+Execution Time Estimate: 0.529 seconds (vs 1.624 seconds OLTP)
 
-Improvement factor: ~2.8x FASTER
+Improvement Factor: 3.0x FASTER
 
-Performance Analysis:
-- **OLTP**: **1.21s**.
-    - **Bottleneck**: Row Explosion. Joining 5 tables (`encounters`, `diagnoses`, `procedures`, etc.) caused a Cartesian product for each encounter.
-- **Star Schema**: **425ms**.
-    - **Strategy**: Direct Bridge Join.
-    - **Plan**: Joined `bridge_encounter_diagnoses` directly to `bridge_encounter_procedures` using `encounter_key`.
-    - **Efficiency**: COMPLETELY BYPASSED the massive `fact_encounters` table. The query only touched the relevant relationship tables, avoiding the overhead of the central transaction table.
-- **Verdict**: **Significant Win (2.8x)**.
-    - **Insight**: This demonstrates the power of the Bridge Table pattern. It isolates the "Many-to-Many" analysis from the heavy Fact table.
+Explanation: Why is it faster?
+- **Row Explosion Persists**: The nature of the analysis (pairing every diagnosis with every procedure for an encounter) creates a Cartesian product in both schemas. The Star Schema cannot calculate its way out of the fundamental math of the question (M x N rows).
+- **Bridge Efficiency**: It is slightly faster (~1.2x) because the query joins the two Bridge tables (`bridge_encounter_diagnoses` and `bridge_encounter_procedures`) directly using `encounter_key`.
+
+
+QUESTION 3: 30-Day Readmission Rate
+SQL Query (Optimized Star Schema):
+SELECT ... 
+FROM fact_encounters ini 
+LEFT JOIN fact_encounters readmit 
+    ON ini.patient_key = readmit.patient_key 
+    AND readmit.encounter_date > ini.discharge_date ...
+
+Execution Time Estimate: 113ms (vs 276ms OLTP)
+
+Improvement Factor: 2.4x FASTER
+
+Explanation: Why is it faster?
+- **Smart Keys (Date Denormalization)**: By storing `encounter_date` and `discharge_date` directly on the Fact table, we eliminated the need to join `dim_date`.
+- **Simplified Loop**: The self-join loop (Nested Loop) now only has to check columns on the table itself (`readmit.encounter_date`), avoiding the 26,000+ extra lookups to `dim_date` that caused the previous bottleneck.
+- **Lean Join**: The Star Schema `fact_encounters` table is narrower (fewer columns/bytes per row) than the OLTP `encounters` table, making the memory footprint of the self-join smaller and faster.
+
+QUESTION 4: Revenue by Specialty & Month
+SQL Query (Optimized Star Schema):
+SELECT 
+    COALESCE(DATE_FORMAT(f.claim_date, '%M'), 'Unpaid/Pending') as month_name, 
+    SUM(f.total_allowed_amount) ... 
+FROM fact_encounters f ...
+
+Expected Performance: 75.4ms (vs 276ms OLTP)
+
+Improvement Factor: 3.7x FASTER
+
+Explanation: Why is it faster?
+- **Pre-Aggregation**: The `fact_encounters` table already stores `total_allowed_amount` (summed from billing lines during ETL). The OLTP query has to join `encounters` -> `billing` and SUM on the fly.
+- **Single Table Scan**: The optimized query effectively scans one table (`fact_encounters`) and joins one small dimension (`dim_specialty`).
+- **Claim Date Optimization**: We now use the denormalized `claim_date` on the Fact table to instantly filter for 'Paid' status (where date is not null) or group by month, matching the OLTP's "Cash Basis" logic without the join overhead.
+
+**Note on Data Validation**:
+- **Total Revenue Matches**: Verified that `$51,518,741.86` is identical in both systems.

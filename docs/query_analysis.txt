@@ -1,94 +1,106 @@
 QUESTION 1: Monthly Encounters by Specialty
+
 SQL Query:
-SELECT 
-    DATE_FORMAT(e.encounter_date, '%Y-%m') as month,
+
+sql
+SELECT
+    DATE_FORMAT(encounter_date, '%Y-%m') as month,
     s.specialty_name,
     e.encounter_type,
-    COUNT(e.encounter_id) as total_encounters,
+    COUNT(*) as total_encounters,
     COUNT(DISTINCT e.patient_id) as unique_patients
-FROM encounters e
-JOIN providers p ON e.provider_id = p.provider_id
-JOIN specialties s ON p.specialty_id = s.specialty_id
-GROUP BY 1, 2, 3
-ORDER BY 1, 2, 3
-
+FROM
+    encounters e
+    JOIN providers p ON e.provider_id = p.provider_id
+    JOIN specialties s ON p.specialty_id = s.specialty_id
+GROUP BY
+    1,
+    2,
+    3
+ORDER BY 1, 2 DESC;
 Schema Analysis:
+
 Tables joined: encounters, providers, specialties
 Number of joins: 2
 Performance:
-Execution time: 0.2203 seconds
-Estimated rows scanned: 594
-Rows returned: 450
-Bottleneck Identified:
-Efficient query with covering indexes. The database uses index lookups on provider_id and specialty_id, 
-scanning only 594 rows to produce 450 results. This is a well-optimized query for the OLTP schema.
+
+Execution time: 0.391 seconds 
+Estimated rows scanned: 30,000
+Bottleneck Identified: Sorting and Grouping large datasets. While the query uses indexes effectively for joins (Nested Loop), it still has to retrieve all 30,000 encounters efficiently but then spends most of its time (133ms of 146ms)(299ms of 232ms) sorting the results for the GROUP BY operation. This CPU-bound sorting is the bottleneck.
+
 
 ---------------------------------------------------
 
 QUESTION 2: Top Diagnosis-Procedure Pairs
+
 SQL Query:
-SELECT 
+
+sql
+SELECT
     d.icd10_code,
     p.cpt_code,
-    COUNT(e.encounter_id) as overlap_count
+    COUNT(e.encounter_id) as Number_of_visits_with_this_pair
 FROM encounters e
 JOIN encounter_diagnoses ed ON e.encounter_id = ed.encounter_id
 JOIN diagnoses d ON ed.diagnosis_id = d.diagnosis_id
 JOIN encounter_procedures ep ON e.encounter_id = ep.encounter_id
 JOIN procedures p ON ep.procedure_id = p.procedure_id
 GROUP BY 1, 2
-ORDER BY 3 DESC
-LIMIT 10
-
+ORDER BY 3 DESC;
 Schema Analysis:
+
 Tables joined: encounters, encounter_diagnoses, diagnoses, encounter_procedures, procedures
 Number of joins: 4
 Performance:
-Execution time: 1.2128 seconds
-Estimated rows scanned: 30,169
-Rows returned: 10
-Bottleneck Identified:
-CRITICAL: Row Explosion. Joining two many-to-many junction tables (diagnoses and procedures) through 
-the encounter table causes a Cartesian product for each encounter (e.g., 3 diagnoses * 2 procedures = 6 
-rows per encounter), which then has to be aggregated back down. This is the slowest query in the OLTP 
-schema and demonstrates the key weakness of normalized schemas for complex analytical queries.
 
+Execution time: 1.624 seconds
+Estimated rows scanned: 89,932
+Bottleneck Identified: Row Explosion (Cartesian Product). The query joins two many-to-many junction tables (encounter_diagnoses and encounter_procedures) via the encounters table. This creates a partial Cartesian product for each encounter. For example, if an encounter has 3 diagnoses and 2 procedures, the intermediate result has 6 rows (3x2). This "fan-out" is visible in the plan where rows=45052 jumps to rows=89932. The database then has to aggregate (GROUP BY) this inflated dataset, which is expensive.
 ---------------------------------------------------
 
 QUESTION 3: 30-Day Readmission Rate
+
 SQL Query:
-SELECT 
+
+sql
+SELECT
     s.specialty_name,
-    COUNT(DISTINCT initial.encounter_id) as index_admissions,
+    COUNT(DISTINCT ini.encounter_id) as index_admissions,
     COUNT(DISTINCT readmit.encounter_id) as readmissions,
-    (COUNT(DISTINCT readmit.encounter_id) / COUNT(DISTINCT initial.encounter_id)) * 100 as readmission_rate
-FROM encounters initial
-JOIN providers p ON initial.provider_id = p.provider_id
+    (COUNT(DISTINCT readmit.encounter_id) / COUNT(DISTINCT ini.encounter_id)) * 100 as readmission_rate
+FROM encounters ini
+JOIN providers p ON ini.provider_id = p.provider_id
 JOIN specialties s ON p.specialty_id = s.specialty_id
-LEFT JOIN encounters readmit ON initial.patient_id = readmit.patient_id
-    AND readmit.encounter_date > initial.discharge_date
-    AND readmit.encounter_date <= DATE_ADD(initial.discharge_date, INTERVAL 30 DAY)
-WHERE initial.encounter_type = 'Inpatient'
+LEFT JOIN encounters readmit ON ini.patient_id = readmit.patient_id
+    AND readmit.encounter_date > ini.discharge_date
+    AND readmit.encounter_date <= DATE_ADD(ini.discharge_date, INTERVAL 30 DAY)
+WHERE ini.encounter_type = 'Inpatient'
 GROUP BY 1
-ORDER BY 4 DESC
-
+ORDER BY 4 DESC;
 Schema Analysis:
-Tables joined: encounters (x2), providers, specialties
-Number of joins: 3 (including 1 self-join)
-Performance:
-Execution time: 0.1796 seconds
-Estimated rows scanned: 30,170
-Rows returned: 6
-Bottleneck Identified:
-Self-Join with date range filtering. The query scans the entire encounters table (~30K rows) to find 
-readmissions within 30 days. While not as slow as originally estimated, this query would benefit from 
-a composite index on (patient_id, encounter_date, discharge_date, encounter_type).
 
+Tables joined: encounters (self-joined), providers, specialties
+Number of joins: 3 (1 self-join)
+Performance:
+
+Execution time: 0.276 seconds 
+Estimated rows scanned: 30,000(initial) and 6,095 (readmit) 
+Bottleneck Identified: Self-Join Logic on Non-Indexed Dates.
+
+Filtering: The query efficiently filters for 'Inpatient' encounters first, finding ~6,000 rows (from 30k).
+The Nested Loop: For each of these 6,000 index admissions, it has to look up the encounters table again (readmit alias) to find matching patient IDs.
+The Scan: The critical part is that the date logic (readmit.encounter_date > ...) is applied as a FILTER, not a direct index lookup range.
+It scans about 4.34 rows per patient on average to check the dates.
+It does this loop 6,041 times.
+Impact: While not a massive volume bottleneck like Q2, the logic forces a nested loop that inherently slows down as data grows (O(N*M) complexity for the self-join).
 ---------------------------------------------------
 
 QUESTION 4: Revenue by Specialty & Month
+
 SQL Query:
-SELECT 
+
+sql
+SELECT
     DATE_FORMAT(b.claim_date, '%Y-%m') as month,
     s.specialty_name,
     SUM(b.allowed_amount) as total_revenue
@@ -98,30 +110,21 @@ JOIN providers p ON e.provider_id = p.provider_id
 JOIN specialties s ON p.specialty_id = s.specialty_id
 WHERE b.claim_status = 'Paid'
 GROUP BY 1, 2
-ORDER BY 1, 3 DESC
-
+ORDER BY 1, 3 DESC;
 Schema Analysis:
+
 Tables joined: billing, encounters, providers, specialties
 Number of joins: 3
 Performance:
-Execution time: 0.1555 seconds
-Estimated rows scanned: 30,174
-Rows returned: 154
-Bottleneck Identified:
-Multiple joins required to link Revenue (Billing) to the grouping dimension (Specialty). The query 
-performs a full table scan on billing and joins through encounters and providers to reach specialties. 
-Relatively efficient for the OLTP schema.
 
----------------------------------------------------
+Execution time: 0.276 seconds 
+Estimated rows scanned: 15,088 (Filtered Fact Table) -> 15,088 (Active Rows)
+Bottleneck Identified: Multiple Joins on High Volume.
 
-OVERALL OLTP PERFORMANCE SUMMARY:
-Total Execution Time: 1.7682 seconds
-Average Query Time: 0.4421 seconds
-Total Rows Scanned: 91,107
-Queries: 4
-
-Key Findings:
-- Q2 (Diagnosis-Procedure Pairs) is the slowest at 1.21s due to many-to-many join complexity
-- Q3 (Readmission Rate) scans the most rows (30,170) but executes reasonably fast
-- Q1 and Q4 are well-optimized with good index usage
-- The OLTP schema is efficient for simple queries but struggles with complex analytical patterns
+The Scan: The query starts with a Full Table Scan on billing (30,000 rows).
+The Filter: It efficiently filters only for claim_status='Paid', finding roughly half the rows (~15,000).
+The Hop: For each of these 15,000 rows, it must hop through 3 tables to get the grouping info:
+Billing -> Encounters (to get Provider ID)
+Encounters -> Providers (to get Specialty ID)
+Providers -> Specialties (to get the Name)
+The Cost: Even though these are fast index lookups, doing 15,000 sets of triple-jumps adds up. In a Data Warehouse, this "Star Join" would be much simpler or the data would be pre-aggregated.

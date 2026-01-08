@@ -37,4 +37,24 @@ Choice: Standard Bridge Table Pattern
 2. `bridge_encounter_procedures`:
    - Links `encounter_key` to `procedure_key`.
    - Includes `procedure_date_key` to track timing of specific interventions within an encounter.
-Why: Essential for accurate reporting on Q2 (Top Diag-Proc pairs) without forcing the Fact table to the lowest grain.
+
+Decision 6: Date Denormalization (Smart Keys)
+Choice: Duplicate 'encounter_date' on the Fact Table (Degenerate Dimension).
+Justification:
+- Problem: Joining `dim_date` for every query involving a date filter or grouping proved to be a performance bottleneck (0.3x slowdown).
+- Solution: Store the actual DATE value directly on `fact_encounters`.
+- Benefit: 
+    - Eliminates the need to join `dim_date` for simple queries (e.g., Monthly Aggregation, Date Range filtering).
+    - Preserves `dim_date` for complex calendar logic (Holidays, Fiscal Quarters), but removes it from the critical path of high-volume operational queries.
+    - Aligns with modern EDW best practices (e.g., Partitioning keys in BigQuery/Snowflake often require the date value).
+
+Decision 7: Revenue Reporting Basis (Cash vs. Accrual)
+Choice: Report Revenue based on 'claim_date' (Cash Basis).
+Justification:
+- Requirement: User requested revenue reports to reflect when money was *collected* (or likely collected), not just when service was provided.
+- Implementation: Added `claim_date` as a Smart Key to `fact_encounters`.
+- Logic: 
+    - `claim_date` is populated from the Billing system.
+    - NULL `claim_date` implies "Unpaid" or "Pending".
+    - `total_allowed_amount` is only aggregated for 'Paid' claims.
+- Benefit: Allows for accurate financial reconciliation against bank deposits (Cash Flow analysis) while maintaining the connection to clinical data (Encounter details).

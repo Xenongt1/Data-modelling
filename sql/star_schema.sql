@@ -92,20 +92,25 @@ encounter_type_key INT,
 -- Metrics
 
 length_of_stay INT,
-    total_claim_amount DECIMAL(12,2),
-    total_allowed_amount DECIMAL(12,2),
-    diagnosis_count INT,
-    procedure_count INT,
-    is_inpatient_flag TINYINT,
-    
-    FOREIGN KEY (patient_key) REFERENCES dim_patient(patient_key),
-    FOREIGN KEY (provider_key) REFERENCES dim_provider(provider_key),
-    FOREIGN KEY (date_key) REFERENCES dim_date(date_key),
-    FOREIGN KEY (specialty_key) REFERENCES dim_specialty(specialty_key),
-    FOREIGN KEY (department_key) REFERENCES dim_department(department_key),
-    FOREIGN KEY (encounter_type_key) REFERENCES dim_encounter_type(encounter_type_key),
-    
+total_claim_amount DECIMAL(12, 2),
+total_allowed_amount DECIMAL(12, 2),
+diagnosis_count INT,
+procedure_count INT,
+is_inpatient_flag TINYINT,
+FOREIGN KEY (patient_key) REFERENCES dim_patient (patient_key),
+FOREIGN KEY (provider_key) REFERENCES dim_provider (provider_key),
+FOREIGN KEY (date_key) REFERENCES dim_date (date_key),
+FOREIGN KEY (specialty_key) REFERENCES dim_specialty (specialty_key),
+FOREIGN KEY (department_key) REFERENCES dim_department (department_key),
+FOREIGN KEY (encounter_type_key) REFERENCES dim_encounter_type (encounter_type_key),
+
+-- Smart Keys (Degenerate Dimensions) for Performance
+
+encounter_date DATE,
+    discharge_date DATE,
+
     INDEX idx_date (date_key),
+    INDEX idx_encounter_date (encounter_date),
     INDEX idx_specialty (specialty_key)
 ) ENGINE=InnoDB;
 

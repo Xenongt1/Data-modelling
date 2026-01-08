@@ -6,43 +6,6 @@ USE medical_dw;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
--- 1. Populate dim_date using a Stored Procedure
-DROP PROCEDURE IF EXISTS GenerateDimDate;
-
-DELIMITER / /
-
-CREATE PROCEDURE GenerateDimDate(IN start_date DATE, IN end_date DATE)
-BEGIN
-    DECLARE curr_date DATE;
-    SET curr_date = start_date;
-
-    TRUNCATE TABLE dim_date;
-
-    WHILE curr_date <= end_date DO
-        INSERT INTO dim_date (
-            date_key, full_date, year, month, month_name, quarter, day_of_week, day_name
-        ) VALUES (
-            CAST(DATE_FORMAT(curr_date, '%Y%m%d') AS UNSIGNED),
-            curr_date,
-            YEAR(curr_date),
-            MONTH(curr_date),
-            DATE_FORMAT(curr_date, '%M'),
-            QUARTER(curr_date),
-            DAYOFWEEK(curr_date),
-            DATE_FORMAT(curr_date, '%W')
-        );
-        SET curr_date = DATE_ADD(curr_date, INTERVAL 1 DAY);
-    END WHILE;
-END //
-
-DELIMITER;
-
-CALL GenerateDimDate ('2020-01-01', '2030-12-31');
-
--- 2. Populate Dimensions
--- ----------------------
-
--- dim_patient
 TRUNCATE TABLE dim_patient;
 
 INSERT INTO
@@ -170,7 +133,10 @@ INSERT INTO
         total_allowed_amount,
         diagnosis_count,
         procedure_count,
-        is_inpatient_flag
+        is_inpatient_flag,
+        encounter_date,
+        discharge_date,
+        claim_date
     )
 SELECT
     e.encounter_id,
@@ -209,15 +175,21 @@ SELECT
     CASE
         WHEN e.encounter_type = 'Inpatient' THEN 1
         ELSE 0
-    END
+    END,
+    e.encounter_date,
+    e.discharge_date,
+    b.claim_date
 FROM
     medical_oltp.encounters e
     LEFT JOIN (
         SELECT
             encounter_id,
+            MAX(claim_date) as claim_date, -- Use MAX effectively for 1:1
             SUM(claim_amount) as total_claim,
             SUM(allowed_amount) as total_allowed
         FROM medical_oltp.billing
+        WHERE
+            claim_status = 'Paid'
         GROUP BY
             encounter_id
     ) b ON e.encounter_id = b.encounter_id
