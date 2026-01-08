@@ -25,7 +25,7 @@ The scripts look for environment variables to connect to your local MySQL databa
 **Default User**: `root`
 **Default Password**: (Empty)
 
-To run with your specific password (e.g., `Ayo05mide*`), prefix the commands like this:
+To run with your specific password, prefix the commands like this:
 ```bash
 export DB_PASSWORD='YourPasswordHere'
 ```
