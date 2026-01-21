@@ -108,6 +108,7 @@ FOREIGN KEY (encounter_type_key) REFERENCES dim_encounter_type (encounter_type_k
 
 encounter_date DATE,
     discharge_date DATE,
+    claim_date DATE,
 
     INDEX idx_date (date_key),
     INDEX idx_encounter_date (encounter_date),
