@@ -65,17 +65,20 @@ GROUP BY
     1
 ORDER BY 4 DESC
 
-SELECT DATE_FORMAT(f.claim_date, '%M') as month_name, s.specialty_name, SUM(f.total_allowed_amount) as total_revenue
+SELECT DATE_FORMAT(b.claim_date, '%Y-%m') as month, s.specialty_name, SUM(b.allowed_amount) as total_revenue
 FROM
-    fact_encounters f
-    JOIN dim_specialty s ON f.specialty_key = s.specialty_key
+    billing b
+    JOIN encounters e ON b.encounter_id = e.encounter_id
+    JOIN providers p ON e.provider_id = p.provider_id
+    JOIN specialties s ON p.specialty_id = s.specialty_id
 WHERE
-    f.claim_date IS NOT NULL
+    b.claim_status = 'Paid'
 GROUP BY
-    DATE_FORMAT(f.claim_date, '%Y'),
-    DATE_FORMAT(f.claim_date, '%m'),
-    month_name,
-    s.specialty_name
-ORDER BY DATE_FORMAT(f.claim_date, '%Y'), DATE_FORMAT(f.claim_date, '%m'), total_revenue DESC;
+    1,
+    2
+ORDER BY 1, 3 DESC
 
 SELECT * FROM billing;
+
+
+SELECT * FROM encounters;

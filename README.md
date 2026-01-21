@@ -4,28 +4,34 @@ Welcome to the Medical Data Warehouse project! This lab demonstrates the migrati
 
 ## Project Structure
 
-- **`scripts/`**: Python scripts for data generation, analysis, and ETL.
-- **`sql/`**: SQL files defining the database schemas.
-- **`docs/`**: Documentation, design decisions, and performance reports.
+- **`scripts/`**:
+    - `generate_data.py`: Python script to generate synthetic patient data and populate the OLTP database.
+- **`sql/`**:
+    - `oltp_setup.sql`: DDL to create the normalized `medical_oltp` database schema.
+    - `DML.sql`: Analytical queries to benchmark the OLTP database performance.
+    - `star_schema.sql`: DDL to create the `medical_dw` Star Schema.
+    - `production_etl.sql`: SQL script to transform and load data from OLTP to DW.
+    - `DML2.sql`: Optimized analytical queries for the Star Schema.
+- **`docs/`**: Documentation, design decisions (`design_decisions.txt`), and analysis reports.
 
 ## Getting Started
 
 ### Prerequisites
 - **MySQL Server** installed and running locally.
 - **Python 3.x**
-- **Libraries**: `mysql-connector-python`, `faker`
+- **Libraries**: `mysql-connector-python`, `faker` (for data generation).
 
 ### Setup Environment
 ```bash
-pip install mysql-connector-python faker
+pip install mysql-connector-python faker dotenv
 ```
 
 ### Configuration
-The scripts look for environment variables to connect to your local MySQL database.
+The generation script looks for environment variables to connect to your local MySQL database.
 **Default User**: `root`
 **Default Password**: (Empty)
 
-To run with your specific password (e.g., `Ayo05mide*`), prefix the commands like this:
+You can create a `.env` file in the root directory or export variables directly:
 ```bash
 export DB_PASSWORD='YourPasswordHere'
 ```
@@ -35,28 +41,38 @@ export DB_PASSWORD='YourPasswordHere'
 ## How to Run
 
 ### Step 1: Generate Data (OLTP)
-Create the `medical_oltp` database and populate it with 30,000 synthetic patient encounters.
+Create the `medical_oltp` database and populate it with synthetic patient encounters.
 ```bash
 cd scripts
-DB_PASSWORD='YourPasswordHere' python3 generate_data.py
+python generate_data.py
 ```
 
 ### Step 2: Analyze OLTP Performance
-Run the business queries against the normalized database to see the baseline performance (and slowness).
+Run the business queries against the normalized database to see the baseline performance.
+Execute the SQL commands in `sql/DML.sql` using your preferred MySQL client (Workbench, DBeaver, or CLI).
+
+**CLI Example:**
 ```bash
-DB_PASSWORD='YourPasswordHere' python3 run_oltp_analysis.py
+mysql -u root -p < sql/DML.sql
 ```
 
 ### Step 3: Run ETL Pipeline
 Create the `medical_dw` database (Star Schema) and transform/load the data.
+Execute `star_schema.sql` first to create the tables, then `production_etl.sql` to load the data.
+
+**CLI Example:**
 ```bash
-DB_PASSWORD='YourPasswordHere' python3 etl_logic.py
+mysql -u root -p < sql/star_schema.sql
+mysql -u root -p < sql/production_etl.sql
 ```
 
 ### Step 4: Validate Star Schema Performance
 Run the optimized queries against the Data Warehouse to benchmark the improvements.
+Execute `sql/DML2.sql`.
+
+**CLI Example:**
 ```bash
-DB_PASSWORD='YourPasswordHere' python3 run_dw_analysis.py
+mysql -u root -p < sql/DML2.sql
 ```
 
 ---

@@ -81,6 +81,7 @@ ORDER BY 4 DESC;
 -- Filter: claim_date IS NOT NULL (implies 'Paid' status from ETL)
 -- ------------------------------------------------------------------------------
 
+EXPLAIN ANALYZE 
 SELECT DATE_FORMAT(f.claim_date, '%M') as month_name, s.specialty_name, SUM(f.total_allowed_amount) as total_revenue
 FROM
     fact_encounters f
@@ -94,4 +95,8 @@ GROUP BY
     s.specialty_name
 ORDER BY DATE_FORMAT(f.claim_date, '%Y'), DATE_FORMAT(f.claim_date, '%m'), total_revenue DESC;
 
-SELECT * FROM fact_encounters;
+SELECT encounter_id, claim_date, is_inpatient_flag FROM fact_encounters
+WHERE encounter_id = 4;
+
+SELECT * FROM dim_date;
+
