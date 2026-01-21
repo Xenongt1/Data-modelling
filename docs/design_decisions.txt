@@ -51,7 +51,7 @@ Justification:
 Decision 7: Revenue Reporting Basis (Cash vs. Accrual)
 Choice: Report Revenue based on 'claim_date' (Cash Basis).
 Justification:
-- Requirement: User requested revenue reports to reflect when money was *collected* (or likely collected), not just when service was provided.
+- Requirement:revenue reports to reflect when money was *collected* (or likely collected), not just when service was provided.
 - Implementation: Added `claim_date` as a Smart Key to `fact_encounters`.
 - Logic: 
     - `claim_date` is populated from the Billing system.
